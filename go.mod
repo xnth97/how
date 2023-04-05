@@ -2,7 +2,10 @@ module github.com/xnth97/how
 
 go 1.20
 
-require github.com/urfave/cli/v2 v2.25.1
+require (
+	github.com/sashabaranov/go-openai v1.6.1
+	github.com/urfave/cli/v2 v2.25.1
+)
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect

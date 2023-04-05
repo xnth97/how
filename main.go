@@ -1,34 +1,36 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"strings"
 
+	"github.com/sashabaranov/go-openai"
 	"github.com/urfave/cli/v2"
 )
 
 // Fill in your Azure credentials.
 const baseUrl = "https://EXAMPLE.openai.azure.com"
 const model = "gpt-35-turbo"
-const apiVersion = "2023-03-15-preview"
 const apiKey = "AZURE_API_KEY"
 
 func main() {
+	config := openai.DefaultAzureConfig(apiKey, baseUrl, model)
+	client := openai.NewClientWithConfig(config)
+	ctx := context.Background()
+
 	app := &cli.App{
 		Name:        "how",
 		Description: "Copilot for your terminal",
 		Usage:       "how <question>",
-		Version:     "1.0.0",
+		Version:     "1.0.1",
 		Action: func(c *cli.Context) error {
 			q := strings.Join(c.Args().Slice(), " ")
-			answer, err := getAnswer(q)
-			if err != nil {
-				return err
-			}
-			fmt.Println(answer)
-			return nil
+			return getAnswer(client, &ctx, q)
 		},
 	}
 
@@ -37,17 +39,40 @@ func main() {
 	}
 }
 
-func getAnswer(query string) (string, error) {
+func getAnswer(client *openai.Client, ctx *context.Context, query string) error {
 	if query == "" {
-		return "", fmt.Errorf("no question provided")
+		return fmt.Errorf("no question provided")
 	}
 
-	client := NewClient(baseUrl, model, apiVersion, apiKey)
-	conv := startConversation()
-	return client.Chat(conv, query)
+	req := openai.ChatCompletionRequest{
+		Model:     openai.GPT3Dot5Turbo,
+		MaxTokens: 400,
+		Messages:  startConversation(query),
+		Stream:    true,
+	}
+
+	stream, err := client.CreateChatCompletionStream(*ctx, req)
+	if err != nil {
+		return err
+	}
+
+	defer stream.Close()
+
+	for {
+		resp, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+
+		ans := resp.Choices[0].Delta.Content
+		fmt.Print(ans)
+	}
 }
 
-func startConversation() *Conversation {
+func startConversation(query string) []openai.ChatCompletionMessage {
 	var systemPrompt string
 	if runtime.GOOS == "windows" {
 		systemPrompt = "You are a proficient PowerShell user. Answer my question with PowerShell commands."
@@ -55,12 +80,14 @@ func startConversation() *Conversation {
 		systemPrompt = "You are a proficient terminal user. Answer my question with terminal commands."
 	}
 
-	return &Conversation{
-		Messages: []Message{
-			{
-				Role:    "system",
-				Content: systemPrompt,
-			},
+	return []openai.ChatCompletionMessage{
+		{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: systemPrompt,
+		},
+		{
+			Role:    openai.ChatMessageRoleUser,
+			Content: query,
 		},
 	}
 }
