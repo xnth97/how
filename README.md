@@ -8,6 +8,7 @@ Copilot for your terminal, powered by Azure Cognitive Services
 - Works as a copilot for your terminal, simply types `how <question>` to ask it anything.
 - Powered by Azure Cognitive Services. Can easily migrate to OpenAI as it's now built on top of [go-openai](https://github.com/sashabaranov/go-openai) which supports both Azure and OpenAI APIs.
 - Uses PowerShell under Windows and bash under *nix.
+- Directly execute the command.
 
 ## Usage
 

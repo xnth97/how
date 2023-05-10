@@ -2,13 +2,15 @@ package main
 
 import (
 	"context"
-	"errors"
+	"encoding/json"
 	"fmt"
-	"io"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 
+	"github.com/erikgeiser/promptkit/confirmation"
+	"github.com/mattn/go-shellwords"
 	"github.com/sashabaranov/go-openai"
 	"github.com/urfave/cli/v2"
 )
@@ -27,7 +29,7 @@ func main() {
 		Name:        "how",
 		Description: "Copilot for your terminal",
 		Usage:       "how <question>",
-		Version:     "1.0.1",
+		Version:     "1.0.2",
 		Action: func(c *cli.Context) error {
 			q := strings.Join(c.Args().Slice(), " ")
 			return getAnswer(client, &ctx, q)
@@ -45,39 +47,34 @@ func getAnswer(client *openai.Client, ctx *context.Context, query string) error 
 	}
 
 	req := openai.ChatCompletionRequest{
-		Model:     openai.GPT3Dot5Turbo,
-		MaxTokens: 400,
-		Messages:  startConversation(query),
-		Stream:    true,
+		Model:       openai.GPT3Dot5Turbo,
+		MaxTokens:   400,
+		Messages:    startConversation(query),
+		Stream:      false,
+		Temperature: 0,
 	}
 
-	stream, err := client.CreateChatCompletionStream(*ctx, req)
+	resp, err := client.CreateChatCompletion(*ctx, req)
 	if err != nil {
 		return err
 	}
 
-	defer stream.Close()
-
-	for {
-		resp, err := stream.Recv()
-		if errors.Is(err, io.EOF) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-
-		ans := resp.Choices[0].Delta.Content
-		fmt.Print(ans)
+	ans := resp.Choices[0].Message.Content
+	var answer Answer
+	if err := json.Unmarshal([]byte(ans), &answer); err != nil {
+		return err
 	}
+
+	outputAnswer(answer)
+	return nil
 }
 
 func startConversation(query string) []openai.ChatCompletionMessage {
 	var systemPrompt string
 	if runtime.GOOS == "windows" {
-		systemPrompt = "You are a proficient PowerShell user. Answer my question with PowerShell commands."
+		systemPrompt = "You are a proficient PowerShell user."
 	} else {
-		systemPrompt = "You are a proficient terminal user. Answer my question with terminal commands."
+		systemPrompt = "You are a proficient terminal user."
 	}
 
 	return []openai.ChatCompletionMessage{
@@ -87,7 +84,86 @@ func startConversation(query string) []openai.ChatCompletionMessage {
 		},
 		{
 			Role:    openai.ChatMessageRoleUser,
-			Content: query,
+			Content: makePrompt(query),
 		},
 	}
+}
+
+func makePrompt(query string) string {
+	prompt := `
+	Use terminal command to complete the task delimited by triple quotes.
+	Provide answer in JSON format. "command" key contains the command to run.
+	"explanation" key contains the explanation of the command.
+	If no such command exists, provide an empty string for "command" key.
+	"""
+	%s
+	"""
+	`
+
+	return fmt.Sprintf(prompt, query)
+}
+
+func outputAnswer(answer Answer) {
+	if answer.Command == "" {
+		fmt.Println("No such command exists.")
+		return
+	}
+
+	output := `
+Command:
+    
+    %s
+
+Explanation:
+
+    %s
+
+`
+	fmt.Printf(output, answer.Command, answer.Explanation)
+
+	sp := confirmation.New("Execute the command?", confirmation.Undecided)
+	ready, err := sp.RunPrompt()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	if ready {
+		fmt.Println("")
+		if err := executeCommand(answer.Command); err != nil {
+			fmt.Println(err)
+			return
+		}
+	} else {
+		fmt.Println("OK!")
+	}
+}
+
+func executeCommand(command string) error {
+	args, err := shellwords.Parse(command)
+	if err != nil {
+		return err
+	}
+
+	var cmd *exec.Cmd
+	if len(args) > 1 {
+		cmd = exec.Command(args[0], args[1:]...)
+	} else {
+		cmd = exec.Command(args[0])
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err = cmd.Run()
+
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type Answer struct {
+	Command     string `json:"command"`
+	Explanation string `json:"explanation"`
 }
