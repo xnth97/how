@@ -9,9 +9,10 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/ai/azopenai"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
 	"github.com/erikgeiser/promptkit/confirmation"
 	"github.com/mattn/go-shellwords"
-	"github.com/sashabaranov/go-openai"
 	"github.com/urfave/cli/v2"
 )
 
@@ -21,8 +22,18 @@ const model = "gpt-35-turbo"
 const apiKey = "AZURE_API_KEY"
 
 func main() {
-	config := openai.DefaultAzureConfig(apiKey, baseUrl, model)
-	client := openai.NewClientWithConfig(config)
+	keyCredential, err := azopenai.NewKeyCredential(apiKey)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	client, err := azopenai.NewClientWithKeyCredential(baseUrl, keyCredential, nil)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
 	ctx := context.Background()
 
 	app := &cli.App{
@@ -41,25 +52,24 @@ func main() {
 	}
 }
 
-func getAnswer(client *openai.Client, ctx *context.Context, query string) error {
+func getAnswer(client *azopenai.Client, ctx *context.Context, query string) error {
 	if query == "" {
 		return fmt.Errorf("no question provided")
 	}
 
-	req := openai.ChatCompletionRequest{
-		Model:       openai.GPT3Dot5Turbo,
-		MaxTokens:   400,
-		Messages:    startConversation(query),
-		Stream:      false,
-		Temperature: 0,
+	req := azopenai.ChatCompletionsOptions{
+		DeploymentID: model,
+		MaxTokens:    to.Ptr(int32(400)),
+		Messages:     startConversation(query),
+		Temperature:  to.Ptr(float32(0)),
 	}
 
-	resp, err := client.CreateChatCompletion(*ctx, req)
+	resp, err := client.GetChatCompletions(*ctx, req, nil)
 	if err != nil {
 		return err
 	}
 
-	ans := resp.Choices[0].Message.Content
+	ans := *resp.Choices[0].Message.Content
 	var answer Answer
 	if err := json.Unmarshal([]byte(ans), &answer); err != nil {
 		return err
@@ -69,7 +79,7 @@ func getAnswer(client *openai.Client, ctx *context.Context, query string) error 
 	return nil
 }
 
-func startConversation(query string) []openai.ChatCompletionMessage {
+func startConversation(query string) []azopenai.ChatMessage {
 	var systemPrompt string
 	if runtime.GOOS == "windows" {
 		systemPrompt = "You are a proficient PowerShell user."
@@ -77,19 +87,19 @@ func startConversation(query string) []openai.ChatCompletionMessage {
 		systemPrompt = "You are a proficient terminal user."
 	}
 
-	return []openai.ChatCompletionMessage{
+	return []azopenai.ChatMessage{
 		{
-			Role:    openai.ChatMessageRoleSystem,
-			Content: systemPrompt,
+			Role:    to.Ptr(azopenai.ChatRoleSystem),
+			Content: &systemPrompt,
 		},
 		{
-			Role:    openai.ChatMessageRoleUser,
+			Role:    to.Ptr(azopenai.ChatRoleUser),
 			Content: makePrompt(query),
 		},
 	}
 }
 
-func makePrompt(query string) string {
+func makePrompt(query string) *string {
 	prompt := `
 	Use terminal command to complete the task delimited by triple quotes.
 	Provide answer in JSON format. "command" key contains the command to run.
@@ -100,7 +110,8 @@ func makePrompt(query string) string {
 	"""
 	`
 
-	return fmt.Sprintf(prompt, query)
+	p := fmt.Sprintf(prompt, query)
+	return &p
 }
 
 func outputAnswer(answer Answer) {
