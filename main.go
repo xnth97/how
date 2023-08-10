@@ -40,7 +40,7 @@ func main() {
 		Name:        "how",
 		Description: "Copilot for your terminal",
 		Usage:       "how <question>",
-		Version:     "1.0.2",
+		Version:     "1.0.3",
 		Action: func(c *cli.Context) error {
 			q := strings.Join(c.Args().Slice(), " ")
 			return getAnswer(client, &ctx, q)
