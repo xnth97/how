@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"os"
 	"os/exec"
 	"runtime"
@@ -22,12 +23,7 @@ const model = "gpt-35-turbo"
 const apiKey = "AZURE_API_KEY"
 
 func main() {
-	keyCredential, err := azopenai.NewKeyCredential(apiKey)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
+	keyCredential := azcore.NewKeyCredential(apiKey)
 	client, err := azopenai.NewClientWithKeyCredential(baseUrl, keyCredential, nil)
 	if err != nil {
 		fmt.Println(err)
@@ -40,7 +36,7 @@ func main() {
 		Name:        "how",
 		Description: "Copilot for your terminal",
 		Usage:       "how <question>",
-		Version:     "1.0.3",
+		Version:     "1.0.4",
 		Action: func(c *cli.Context) error {
 			q := strings.Join(c.Args().Slice(), " ")
 			return getAnswer(client, &ctx, q)
@@ -58,10 +54,10 @@ func getAnswer(client *azopenai.Client, ctx *context.Context, query string) erro
 	}
 
 	req := azopenai.ChatCompletionsOptions{
-		DeploymentID: model,
-		MaxTokens:    to.Ptr(int32(400)),
-		Messages:     startConversation(query),
-		Temperature:  to.Ptr(float32(0)),
+		DeploymentName: to.Ptr(model),
+		MaxTokens:      to.Ptr(int32(400)),
+		Messages:       startConversation(query),
+		Temperature:    to.Ptr(float32(0)),
 	}
 
 	resp, err := client.GetChatCompletions(*ctx, req, nil)
@@ -79,7 +75,7 @@ func getAnswer(client *azopenai.Client, ctx *context.Context, query string) erro
 	return nil
 }
 
-func startConversation(query string) []azopenai.ChatMessage {
+func startConversation(query string) []azopenai.ChatRequestMessageClassification {
 	var systemPrompt string
 	if runtime.GOOS == "windows" {
 		systemPrompt = "You are a proficient PowerShell user."
@@ -87,19 +83,17 @@ func startConversation(query string) []azopenai.ChatMessage {
 		systemPrompt = "You are a proficient terminal user."
 	}
 
-	return []azopenai.ChatMessage{
-		{
-			Role:    to.Ptr(azopenai.ChatRoleSystem),
-			Content: &systemPrompt,
+	return []azopenai.ChatRequestMessageClassification{
+		&azopenai.ChatRequestSystemMessage{
+			Content: to.Ptr(systemPrompt),
 		},
-		{
-			Role:    to.Ptr(azopenai.ChatRoleUser),
-			Content: makePrompt(query),
+		&azopenai.ChatRequestUserMessage{
+			Content: azopenai.NewChatRequestUserMessageContent(makePrompt(query)),
 		},
 	}
 }
 
-func makePrompt(query string) *string {
+func makePrompt(query string) string {
 	prompt := `
 	Use terminal command to complete the task delimited by triple quotes.
 	Provide answer in JSON format. "command" key contains the command to run.
@@ -111,7 +105,7 @@ func makePrompt(query string) *string {
 	`
 
 	p := fmt.Sprintf(prompt, query)
-	return &p
+	return p
 }
 
 func outputAnswer(answer Answer) {
