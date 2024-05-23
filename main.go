@@ -19,7 +19,7 @@ import (
 
 // Fill in your Azure credentials.
 const baseUrl = "https://EXAMPLE.openai.azure.com"
-const model = "gpt-35-turbo"
+const model = "gpt-4o"
 const apiKey = "AZURE_API_KEY"
 
 func main() {
@@ -36,7 +36,7 @@ func main() {
 		Name:        "how",
 		Description: "Copilot for your terminal",
 		Usage:       "how <question>",
-		Version:     "1.0.4",
+		Version:     "1.0.5",
 		Action: func(c *cli.Context) error {
 			q := strings.Join(c.Args().Slice(), " ")
 			return getAnswer(client, &ctx, q)
@@ -44,7 +44,7 @@ func main() {
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		fmt.Println(err)
+		fmt.Printf("Error: %s\n", err)
 	}
 }
 
@@ -68,7 +68,8 @@ func getAnswer(client *azopenai.Client, ctx *context.Context, query string) erro
 	ans := *resp.Choices[0].Message.Content
 	var answer Answer
 	if err := json.Unmarshal([]byte(ans), &answer); err != nil {
-		return err
+		newErr := fmt.Errorf("%s\nRaw Output:\n%s", err, ans)
+		return newErr
 	}
 
 	outputAnswer(answer)
@@ -97,7 +98,8 @@ func makePrompt(query string) string {
 	prompt := `
 	Use terminal command to complete the task delimited by triple quotes.
 	Provide answer in JSON format. "command" key contains the command to run.
-	"explanation" key contains the explanation of the command.
+	"explanation" key contains the explanation of the command. 
+	Do not add any markdown annotations.
 	If no such command exists, provide an empty string for "command" key.
 	"""
 	%s
